@@ -1,6 +1,6 @@
 //constants
-var kMaxBoats = 100;
-var kMaxBirds = 50;
+var kMaxBoats = 50;
+var kMaxBirds = 10;
 var kFrameDelay = 30;
 var kPoints = 501;
 var kWaterGrad;
@@ -8,9 +8,7 @@ var kSkyGrad;
 var kDampening = 0.005;
 var kTension = 0.1;
 var kStiffness = 0.025;
-//var gWindow.width = window.innerWidth - 20;
-//var gWindow.height = window.innerHeight - 20;
-var kWidth = (window.innerWidth - 20) * 5;//2000;
+var kWidth = (window.innerWidth - 20) * 5;
 var kHeight = window.innerHeight - 20;
 var kWaterLine = kHeight / 2;
 var kBoatStats;
@@ -24,11 +22,10 @@ var gPoints;
 var gSpeeds;
 var gContext;
 var gKeys;
-//var gWindow.left;
-//var gWindow.top;
-var gFrame;
 var gBoatDelays;
 var gUI;
+var gPreviousTime;
+var gTimeDilator = 35.0;
 
 function Window()
 {
@@ -78,6 +75,7 @@ function new_game()
 	
 	gWindow.zoom = 38.5/15.0;
 	gMonster = new monster(100.0,kWaterLine + 100.0);
+	gPreviousTime = window.performance.now();
 }
 
 function init()
@@ -137,36 +135,42 @@ function init()
 	kSkyGrad.addColorStop(0,"#007399");
 	kSkyGrad.addColorStop(1,"#00BFFF");
 	
-	gFrame = 0;
+	//gFrame = 0;
 	
 	new_game();
 	
 	update();
 }
 
-function update()
+function update(timestamp)
 {
+	timestamp = window.performance.now();
+	var delta = gTimeDilator * (timestamp - gPreviousTime) / 1000.0;
+	//delta = 0.17;
+	gPreviousTime = timestamp;
+
 	//handle keyboard input
-	processKeyboardInput();
+	processKeyboardInput(delta);
 	
 	//update the user interface
-	updateUI();
+	updateUI(delta / gTimeDilator);
 	
 	//if the UI drawer has been pulled out, pause the rest of the game
 	if (!gUI.isOpen())
 	{
 		//create more boats, if necessary
-		gFrame++;
-		createBoats(gFrame);
+		createBoats(delta);
 		
 		//move stuff
-		physicsWater();
-		physicsBoats();
-		physicsBirds();
-		physicsMonster();
+		physicsWater(delta);
+		physicsBoats(delta);
+		physicsBirds(delta);
+		physicsMonster(delta);
 	}
 
 	//clear the screen
+	//if (gFrame & 7 == 1)
+	gContext.setTransform(1, 0, 0, 1, 0, 0);//some slight leakage occurs given enough time
 	gContext.fillStyle = kSkyGrad;
 	gContext.fillRect(0,0,gWindow.render_width,gWindow.render_height);
 	
@@ -177,14 +181,15 @@ function update()
 	drawWater();
 	drawUI();
 	
-	setTimeout(update,kFrameDelay);
+	//setTimeout(update,kFrameDelay);
+	requestAnimationFrame(update);
 }
 
-function processKeyboardInput()
+function processKeyboardInput(delta)
 {
 	var max_speed = 20.0;
-	var speed_increments = 0.1;
-	var angle_increments = 0.1;
+	var speed_increments = 0.1 * delta;
+	var angle_increments = 0.1 * delta;
 
 	if (!gMonster.out_of_water && !gUI.isOpen())
 	{
@@ -192,8 +197,8 @@ function processKeyboardInput()
 			gMonster.angle -= angle_increments;
 		if (gKeys[1])//left arrow
 			gMonster.angle += angle_increments;
-		if (gKeys[2] && gMonster.speed > 0.0)//down arrow
-			gMonster.speed = Math.max(0.0, gMonster.speed - speed_increments * 5.0);
+		//if (gKeys[2] && gMonster.speed > 0.0)//down arrow
+			//gMonster.speed = Math.max(0.0, gMonster.speed - speed_increments);
 		if (gKeys[3] && gMonster.speed < max_speed)//up arrow
 			gMonster.speed += speed_increments;
 		//if (gKeys[4])
@@ -201,15 +206,20 @@ function processKeyboardInput()
 		
 		//if nothing is being pushed, slow down
 		if (!gKeys[0] && !gKeys[1] && !gKeys[2] && !gKeys[3])
-			gMonster.speed *= 0.99;
+			gMonster.speed = Math.max(0.0, gMonster.speed - 0.01 * delta * gMonster.speed);
 	}
+	
+	if (gKeys[2])
+		gTimeDilator = 8.75;
+	else
+		gTimeDilator = 35.0;
 }
 
-function createBoats(frame)
+function createBoats(delta)
 {
 	for (var i = 0; i < gBoatDelays.length; i++)
 	{
-		if (frame >= gBoatDelays[i])
+		if (delta >= gBoatDelays[i])
 		{
 			//find the first inactive boat
 			for (var j = 0; j < kMaxBoats; j++)
@@ -219,12 +229,10 @@ function createBoats(frame)
 					//make the boat
 					gBoats[j] = kBoatStats[i](Math.random() * (kWidth - gWindow.width));
 					if (gBoats[j].x >= gWindow.left && gBoats[j].x <= (gWindow.left + gWindow.width))
-						gBoats[j].x = (gBoats[j] + gWindow.width) % kWidth;
-					
-					//gBoats[j] = kBoatStats[i](Math.round(Math.random()) * kWidth);
+						gBoats[j].x = (gBoats[j].x + gWindow.width) % kWidth;
 
 					//make the delay
-					gBoatDelays[i] += Math.floor(Math.random() * 300);
+					gBoatDelays[i] += Math.floor(Math.random() * 10);
 					
 					break;
 				}
@@ -240,17 +248,19 @@ function createBoats(frame)
 				}
 			}
 		}
+		else
+			gBoatDelays[i] -= delta;
 	}
 }
 
-function updateUI()
+function updateUI(delta)
 {
 	if (gUI.open)
 	{
 		//move the drawer is still being pulled out, pull it out!
 		if (gUI.y < gWindow.render_height * 0.1)
 		{
-			gUI.y += gUI.height / 15.0;
+			gUI.y += delta * gUI.height * 2.0;
 			
 			if (gUI.y > gWindow.render_height * 0.1)
 				gUI.y = gWindow.render_height * 0.1;
@@ -258,28 +268,28 @@ function updateUI()
 	}
 	else if (gUI.y > gUI.restingy)
 	{
-		gUI.y -= gUI.height / 15.0;
+		gUI.y -= delta * gUI.height * 2.0;
 		
 		if (gUI.y < gUI.restingy)
 			gUI.y = gUI.restingy;
 	}
 }
 
-function physicsWater()
+function physicsWater(delta)
 {
 	//apply the physics
 	for (var i = 0; i < kPoints; i++)
 	{
-		gPoints[i] += Math.min(gSpeeds[i],100.0);//dampening and surface tension will quickly bring the actual speed under control
+		gPoints[i] += Math.min(gSpeeds[i],100.0) * delta;//dampening and surface tension will quickly bring the actual speed under control
 		//gSpeeds[i] = (1.0 - kDampening) * (gSpeeds[i] - kStiffness * gPoints[i]);
-		gSpeeds[i] += -kStiffness * (gPoints[i] - 5.0 * Math.sin(gFrame / 10.0 + i / 5.0)) - gSpeeds[i] * kDampening;
+		gSpeeds[i] += -kStiffness * (gPoints[i] - 30.0 * Math.sin(window.performance.now() / 10.0 + i / 10.0)) - gSpeeds[i] * kDampening * delta;
 	}
 	
 	//move the surrounding water
 	var leftDeltas = new Array(kPoints);
 	var rightDeltas = new Array(kPoints);
 	
-	var iterations = 8;
+	var iterations = 2;
 	var last_point_index = kPoints - 1;
 	for (var i = 0; i < iterations; i++)
 	{
@@ -314,7 +324,7 @@ function physicsWater()
 	}
 }
 
-function physicsBoats()
+function physicsBoats(delta)
 {
 	for (var i = 0; i < gBoats.length; i++)
 	{
@@ -330,13 +340,13 @@ function physicsBoats()
 			if (gBoats[i].y > kHeight)
 				gBoats[i].inactive = true;
 			else
-				gBoats[i].y += 0.98 + gSpeeds[p] * (1.0 - (gBoats[i].y - kWaterLine) / kWaterLine);
+				gBoats[i].y += 0.98 + gSpeeds[p] * (1.0 - (gBoats[i].y - kWaterLine) / kWaterLine) * delta;
 		}
 		else
 		{
 			//apply the phyics from the previous frame
-			gBoats[i].x += gBoats[i].vx;
-			gBoats[i].y += gBoats[i].vy;
+			gBoats[i].x += gBoats[i].vx * delta;
+			gBoats[i].y += gBoats[i].vy * delta;
 			
 			//determine if we're touching the water
 			if (gBoats[i].y >= (gPoints[p] + kWaterLine))
@@ -362,11 +372,13 @@ function physicsBoats()
 					gBoats[i].vy = gSpeeds[p];
 					
 					//now determine our sprite rotation
-					var offset = Math.floor((gBoats[i].width / 2.0) / (kWidth / kPoints));
-					var lp = Math.max(0,p - offset);
-					var rp = Math.min(kPoints-1,p + offset);
+					var spacing = kWidth / kPoints;
+					var offset = Math.floor(gBoats[i].width * 0.5 / spacing);
+					//var offset = Math.floor((gBoats[i].width / 2.0) / (kWidth / kPoints));
+					var lp = (p - offset + kPoints) % kPoints;
+					var rp = (p + offset) % kPoints;
 					
-					gBoats[i].sprite_rot = Math.atan2(gPoints[rp] - gPoints[lp], rp - lp) * 0.5;
+					gBoats[i].sprite_rot = Math.atan2(gPoints[rp] - gPoints[lp], ((rp - lp + kPoints) % kPoints) * spacing);
 				}
 				
 				gBoats[i].in_the_air = false;
@@ -385,10 +397,10 @@ function physicsBoats()
 				}
 				
 				//now apply gravity
-				gBoats[i].vy += 0.98;
+				gBoats[i].vy += 0.98 * delta;
 				
 				//now spin
-				gBoats[i].sprite_rot += gBoats[i].spin;
+				gBoats[i].sprite_rot += gBoats[i].spin * delta;
 				
 				//now apply the terminal velocity
 				if (gBoats[i].vy > 60.0)
@@ -497,7 +509,7 @@ function physicsBoats()
 	}
 }
 
-function physicsBirds()
+function physicsBirds(delta)
 {
 	for (var i = 0; i < gBirds.length; i++)
 	{
@@ -513,14 +525,14 @@ function physicsBirds()
 			if (gBirds[i].y > kHeight)
 				gBirds[i].inactive = true;
 			else
-				gBirds[i].y += 0.98 + gSpeeds[p] * (1.0 - (gBirds[i].y - kWaterLine) / kWaterLine);
+				gBirds[i].y += 0.98 + gSpeeds[p] * (1.0 - (gBirds[i].y - kWaterLine) / kWaterLine) * delta;
 		}
 		else
 		{
 			//apply the phyics from the previous frame
-			gBirds[i].x += gBirds[i].vx;
-			gBirds[i].y += gBirds[i].vy;
-			gBirds[i].sprite_rot += gBirds[i].spin;
+			gBirds[i].x += gBirds[i].vx * delta;
+			gBirds[i].y += gBirds[i].vy * delta;
+			gBirds[i].sprite_rot += gBirds[i].spin * delta;
 			
 			//determine if we're touching the water
 			if (gBirds[i].y >= (gPoints[p] + kWaterLine))
@@ -534,7 +546,7 @@ function physicsBirds()
 				if (gBirds[i].capsized)
 				{
 					gBirds[i].spin = Math.min(0.5,gBirds[i].sprite_rot * gBirds[i].vy / 50.0);
-					gBirds[i].vy += 0.98;
+					gBirds[i].vy += 0.98 * delta;
 					//gBirds[i].sprite_rot += gBirds[i].spin;
 					
 					if (gBirds[i].vy > 60.0)
@@ -592,7 +604,7 @@ function physicsBirds()
 	}
 }
 
-function physicsMonster()
+function physicsMonster(delta)
 {
 	//not really physics, but grow the monster if necessary
 	gMonster.mass = Math.min(gMonster.mass, 18627.0);
@@ -635,7 +647,7 @@ function physicsMonster()
 		}
 		
 		//apply gravity
-		gMonster.setMovementVector(v.x,v.y + 0.98);
+		gMonster.setMovementVector(v.x,v.y + 0.98 * delta);
 		
 		gMonster.out_of_water = true;
 	}
@@ -656,12 +668,11 @@ function physicsMonster()
 	}
 	
 	//now actually apply the physics
-	gMonster.x += v.x;
-	gMonster.y += v.y;
+	gMonster.x += v.x * delta;
+	gMonster.y += v.y * delta;
 	
 	//finally, not physics, but adjust the viewport to follow the little guy and adjust the fame
-	gWindow.zoom = Math.max(38.5 / gMonster.radius, gWindow.zoom - 0.005);
-//	gWindow.zoom = 38.5 / gMonster.radius;
+	gWindow.zoom = Math.max(38.5 / gMonster.radius, gWindow.zoom - 0.005 * delta);
 	gWindow.width = gWindow.render_width / gWindow.zoom;
 	gWindow.height = gWindow.render_height / gWindow.zoom;
 	
@@ -674,53 +685,22 @@ function physicsMonster()
 		gWindow.left -= kWidth;
 	
 	if (gMonster.out_of_water)
-		gMonster.fame += 0.003 * (gMonster.radius / 15.0);
+		gMonster.fame += 0.003 * (gMonster.radius / 15.0) * delta;
 }
 
 function drawWater()
 {
-	/*
-	var p = real_to_view(0.0,gPoints[0] + kWaterLine);
-	gContext.beginPath();
-	gContext.moveTo(p.x,p.y);
-	
-	var separation = kWidth / (kPoints-1);
-	for (var i = 1; i <= kPoints; i++)
-	{
-		p = real_to_view(i * separation,gPoints[i] + kWaterLine);
-		gContext.lineTo(p.x,p.y);
-	}
-	
-	gContext.strokeStyle = "#000A99";
-	gContext.lineWidth = 5 * gWindow.zoom;
-	gContext.lineJoin = "round";
-	
-	gContext.stroke();
-	
-	p = real_to_view(kWidth,kHeight);
-	gContext.lineTo(p.x,p.y);
-	p = real_to_view(0,kHeight);
-	gContext.lineTo(p.x,p.y);
-	
-	//gContext.lineTo((kWidth - gWindow.left) * gWindow.zoom, (kHeight - gWindow.top) * gWindow.zoom);
-	//gContext.lineTo(0,(kHeight - gWindow.top) * gWindow.zoom);
-
-	gContext.closePath();
-	gContext.fillStyle = kWaterGrad;
-	gContext.fill();
-	*/
-	
 	var separation = kWidth / (kPoints-1);
 	var p = real_to_view(0,kWaterLine);
 	gContext.beginPath();
 	gContext.moveTo(-100.0,p.y);
-	
+	//do we need to skip the last point if we're drawing the first point?
 	//figure out which point to start with (since order matters or things get weird)
 	var fp = Math.floor(gWindow.left / separation);
 	if (fp <= 0)
 		fp = kPoints - 1;
 	var num_points_to_cover = Math.ceil(gWindow.width / separation) + 2;
-	for (var i = 0; i < num_points_to_cover; i++)
+	for (var i = 0; i <= num_points_to_cover; i++)
 	{
 		p = real_to_view(((fp + i) % kPoints) * separation, gPoints[((fp + i) % kPoints)] + kWaterLine);
 		
@@ -771,6 +751,8 @@ function drawBirds()
 function drawMonster()
 {
 	var p = real_to_view(gMonster.x, gMonster.y);
+	p.x = p.x | 0;
+	p.y = p.y | 0;
 	var angle = -gMonster.angle;
 	var scale_factor = 0.5;//gWindow.zoom * gMonster.radius / 77;
 	var yflip = clip_angle(gMonster.angle - Math.PI / 2.0) < Math.PI ? -1 : 1;
@@ -845,6 +827,8 @@ function rotateAndPaintImage (image, angleInRad, xflip, positionX, positionY, ax
 {
 	var s = gWindow.zoom;
 	var p = real_to_view(positionX,positionY);
+	p.x = p.x | 0;
+	p.y = p.y | 0;
 	gContext.translate( p.x , p.y );
 	gContext.rotate( angleInRad );
 	gContext.scale(xflip ? -s: s, s);
