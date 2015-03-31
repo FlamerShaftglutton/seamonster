@@ -10,7 +10,7 @@ var kTension = 0.1;
 var kStiffness = 0.025;
 //var gWindow.width = window.innerWidth - 20;
 //var gWindow.height = window.innerHeight - 20;
-var kWidth = 2000;
+var kWidth = (window.innerWidth - 20) * 5;//2000;
 var kHeight = window.innerHeight - 20;
 var kWaterLine = kHeight / 2;
 var kBoatStats;
@@ -76,6 +76,7 @@ function new_game()
 	
 	gUI = new UI(gWindow.render_width * 0.1, -gWindow.render_height * 0.7, gWindow.render_width * 0.8, gWindow.render_height * 0.8);
 	
+	gWindow.zoom = 38.5/15.0;
 	gMonster = new monster(100.0,kWaterLine + 100.0);
 }
 
@@ -173,7 +174,7 @@ function update()
 	drawBoats();
 	drawBirds();
 	drawMonster();
-	drawPolygon();
+	drawWater();
 	drawUI();
 	
 	setTimeout(update,kFrameDelay);
@@ -216,7 +217,11 @@ function createBoats(frame)
 				if (gBoats[j].inactive)
 				{
 					//make the boat
-					gBoats[j] = kBoatStats[i](Math.round(Math.random()) * kWidth);
+					gBoats[j] = kBoatStats[i](Math.random() * (kWidth - gWindow.width));
+					if (gBoats[j].x >= gWindow.left && gBoats[j].x <= (gWindow.left + gWindow.width))
+						gBoats[j].x = (gBoats[j] + gWindow.width) % kWidth;
+					
+					//gBoats[j] = kBoatStats[i](Math.round(Math.random()) * kWidth);
 
 					//make the delay
 					gBoatDelays[i] += Math.floor(Math.random() * 300);
@@ -266,7 +271,8 @@ function physicsWater()
 	for (var i = 0; i < kPoints; i++)
 	{
 		gPoints[i] += Math.min(gSpeeds[i],100.0);//dampening and surface tension will quickly bring the actual speed under control
-		gSpeeds[i] = (1.0 - kDampening) * (gSpeeds[i] - kStiffness * gPoints[i]);
+		//gSpeeds[i] = (1.0 - kDampening) * (gSpeeds[i] - kStiffness * gPoints[i]);
+		gSpeeds[i] += -kStiffness * (gPoints[i] - 5.0 * Math.sin(gFrame / 10.0 + i / 5.0)) - gSpeeds[i] * kDampening;
 	}
 	
 	//move the surrounding water
@@ -274,25 +280,34 @@ function physicsWater()
 	var rightDeltas = new Array(kPoints);
 	
 	var iterations = 8;
+	var last_point_index = kPoints - 1;
 	for (var i = 0; i < iterations; i++)
 	{
-		for (var j = 0; j < kPoints; j++)
+		leftDeltas[0] = kTension * (gPoints[last_point_index] - gPoints[0]);
+		rightDeltas[0] = kTension * (gPoints[1] - gPoints[0]);
+		for (var j = 1; j < last_point_index; j++)
 		{
-			if (j > 0)
 				leftDeltas[j] = kTension * (gPoints[j - 1] - gPoints[j]);
-			if (j < (kPoints-1))
 				rightDeltas[j] = kTension * (gPoints[j + 1] - gPoints[j]);
 		}
+		leftDeltas[last_point_index] = kTension * (gPoints[last_point_index - 1] - gPoints[last_point_index]);
+		rightDeltas[last_point_index] = kTension * (gPoints[0] - gPoints[last_point_index]);
 		
-		gPoints[0] += rightDeltas[0];
-		gSpeeds[0] += rightDeltas[0];
 		
-		gPoints[kPoints - 1] += leftDeltas[kPoints - 1];
-		gSpeeds[kPoints - 1] += leftDeltas[kPoints - 1];
+		//gPoints[0] += rightDeltas[0];
+		//gSpeeds[0] += rightDeltas[0];
 		
-		for (var j = 1; j < (kPoints-1); j++)
+		//gPoints[kPoints - 1] += leftDeltas[kPoints - 1];
+		//gSpeeds[kPoints - 1] += leftDeltas[kPoints - 1];
+		
+		//for (var j = 1; j < (kPoints-1); j++)
+		for (var j = 0; j < kPoints; j++)
 		{
 			var diff = leftDeltas[j] + rightDeltas[j];
+			
+			//if (isNaN(diff))
+			//	diff = 0.0;
+			
 			gPoints[j] += diff;
 			gSpeeds[j] += diff;
 		}
@@ -347,7 +362,7 @@ function physicsBoats()
 					gBoats[i].vy = gSpeeds[p];
 					
 					//now determine our sprite rotation
-					var offset = 5;
+					var offset = Math.floor((gBoats[i].width / 2.0) / (kWidth / kPoints));
 					var lp = Math.max(0,p - offset);
 					var rp = Math.min(kPoints-1,p + offset);
 					
@@ -402,15 +417,17 @@ function physicsBoats()
 			//if we're out of bounds then put us back in
 			if (gBoats[i].x < 0)
 			{
-				gBoats[i].des_speed = -gBoats[i].des_speed;
-				gBoats[i].x = 0;
-				gBoats[i].vx = -gBoats[i].vx;
+				gBoats[i].x += kWidth;
+				//gBoats[i].des_speed = -gBoats[i].des_speed;
+				//gBoats[i].x = 0;
+				//gBoats[i].vx = -gBoats[i].vx;
 			}
 			else if (gBoats[i].x > (kWidth - 1))
 			{
-				gBoats[i].des_speed = -gBoats[i].des_speed;
-				gBoats[i].x = kWidth - 1;
-				gBoats[i].vx = -gBoats[i].vx;
+				gBoats[i].x -= kWidth;
+				//gBoats[i].des_speed = -gBoats[i].des_speed;
+				//gBoats[i].x = kWidth - 1;
+				//gBoats[i].vx = -gBoats[i].vx;
 			}
 			
 			//if the monster hit this boat...
@@ -532,11 +549,17 @@ function physicsBirds()
 				}
 			}
 			
-			//if we're out of bounds then just get rid of the bird
+			//if we're out of bounds then wrap around
+			if (gBirds[i].x < 0)
+				gBirds[i].x += kWidth;
+			else if (gBirds[i].x >= kWidth)
+				gBirds[i].x -= kWidth;
+			/*
 			if (gBirds[i].x < 0 || gBirds[i].x > kWidth)
 			{
 				gBirds[i].inactive = true;
 			}
+			*/
 			
 			//if the monster hit this bird...
 			var dx = gMonster.x - gBirds[i].x;
@@ -578,13 +601,15 @@ function physicsMonster()
 	//reign it in if it's trying to escape
 	if (gMonster.x <= 0.0)
 	{
-		gMonster.angle = Math.PI - gMonster.angle;
-		gMonster.x = 0.0;
+		//gMonster.angle = Math.PI - gMonster.angle;
+		//gMonster.x = 0.0;
+		gMonster.x += kWidth;
 	}
 	if (gMonster.x >= kWidth)
 	{
-		gMonster.angle = Math.PI - gMonster.angle;
-		gMonster.x = kWidth - 1;
+		//gMonster.angle = Math.PI - gMonster.angle;
+		//gMonster.x = kWidth - 1;
+		gMonster.x -= kWidth;
 	}
 	
 	if (gMonster.y >= kHeight)
@@ -604,7 +629,7 @@ function physicsMonster()
 			var watermass = kWaterLine - gPoints[p];
 			var mvy = -Math.sin(gMonster.angle) * gMonster.speed;
 			var totmass = watermass + gMonster.mass;
-			var new_speed = (2 * gMonster.mass * mvy - gMonster.mass * gSpeeds[p] + watermass * gSpeeds[p]) / totmass;
+			var new_speed = (3 * gMonster.mass * mvy - gMonster.mass * gSpeeds[p] + watermass * gSpeeds[p]) / totmass;
 			gSpeeds[p] = new_speed;
 			//gSpeeds[p] = v.y * gMonster.radius / 4.0;
 		}
@@ -635,15 +660,26 @@ function physicsMonster()
 	gMonster.y += v.y;
 	
 	//finally, not physics, but adjust the viewport to follow the little guy and adjust the fame
-	gWindow.left = Math.max(0.0,Math.min(kWidth - gWindow.width,gMonster.x - gWindow.width / 2.0));
+	gWindow.zoom = Math.max(38.5 / gMonster.radius, gWindow.zoom - 0.005);
+//	gWindow.zoom = 38.5 / gMonster.radius;
+	gWindow.width = gWindow.render_width / gWindow.zoom;
+	gWindow.height = gWindow.render_height / gWindow.zoom;
+	
+	gWindow.left = gMonster.x - gWindow.width / 2.0;
 	gWindow.top = Math.min(kHeight - gWindow.height, gMonster.y - gWindow.height / 2.0);
+	
+	if (gWindow.left < 0.0)
+		gWindow.left += kWidth;
+	if (gWindow.left > kWidth)
+		gWindow.left -= kWidth;
 	
 	if (gMonster.out_of_water)
 		gMonster.fame += 0.003 * (gMonster.radius / 15.0);
 }
 
-function drawPolygon()
+function drawWater()
 {
+	/*
 	var p = real_to_view(0.0,gPoints[0] + kWaterLine);
 	gContext.beginPath();
 	gContext.moveTo(p.x,p.y);
@@ -665,6 +701,46 @@ function drawPolygon()
 	gContext.lineTo(p.x,p.y);
 	p = real_to_view(0,kHeight);
 	gContext.lineTo(p.x,p.y);
+	
+	//gContext.lineTo((kWidth - gWindow.left) * gWindow.zoom, (kHeight - gWindow.top) * gWindow.zoom);
+	//gContext.lineTo(0,(kHeight - gWindow.top) * gWindow.zoom);
+
+	gContext.closePath();
+	gContext.fillStyle = kWaterGrad;
+	gContext.fill();
+	*/
+	
+	var separation = kWidth / (kPoints-1);
+	var p = real_to_view(0,kWaterLine);
+	gContext.beginPath();
+	gContext.moveTo(-100.0,p.y);
+	
+	//figure out which point to start with (since order matters or things get weird)
+	var fp = Math.floor(gWindow.left / separation);
+	if (fp <= 0)
+		fp = kPoints - 1;
+	var num_points_to_cover = Math.ceil(gWindow.width / separation) + 2;
+	for (var i = 0; i < num_points_to_cover; i++)
+	{
+		p = real_to_view(((fp + i) % kPoints) * separation, gPoints[((fp + i) % kPoints)] + kWaterLine);
+		
+		//if ((p.x + separation / gWindow.zoom) >= gWindow.left && p.x < (gWindow.left + gWindow.width + separation / gWindow.zoom))
+		gContext.lineTo(p.x,p.y);
+	}
+	
+	gContext.strokeStyle = "#000A99";
+	gContext.lineWidth = 5.0 * gWindow.zoom;
+	gContext.lineJoin = "round";
+	
+	//p = real_to_view(kWidth,kHeight);
+	//p = real_to_view(0,kWaterLine);
+	//gContext.lineTo(gWindow.left + gWindow.render_width + 100.0,p.y);
+	
+	gContext.stroke();
+	
+	p = real_to_view(0,kHeight);
+	gContext.lineTo(gWindow.render_width + 100.0,p.y);
+	gContext.lineTo(-100,p.y);
 	
 	//gContext.lineTo((kWidth - gWindow.left) * gWindow.zoom, (kHeight - gWindow.top) * gWindow.zoom);
 	//gContext.lineTo(0,(kHeight - gWindow.top) * gWindow.zoom);
@@ -696,7 +772,7 @@ function drawMonster()
 {
 	var p = real_to_view(gMonster.x, gMonster.y);
 	var angle = -gMonster.angle;
-	var scale_factor = gWindow.zoom * gMonster.radius / 77;
+	var scale_factor = 0.5;//gWindow.zoom * gMonster.radius / 77;
 	var yflip = clip_angle(gMonster.angle - Math.PI / 2.0) < Math.PI ? -1 : 1;
 	
 	gContext.translate(p.x, p.y);
@@ -1018,6 +1094,14 @@ function real_to_view(x,y)
 	var r = new vector2(x,y);
 	r.x -= gWindow.left;
 	r.y -= gWindow.top;
+	
+	if (x < gWindow.left || x > (gWindow.left + gWindow.width))
+	{
+		if ((x + kWidth) < (gWindow.left + gWindow.width * 2.0))
+			r.x += kWidth;
+		else if (x > (gWindow.left - gWindow.width + kWidth))
+			r.x -= kWidth;
+	}
 	
 	r.x *= gWindow.zoom;
 	r.y *= gWindow.zoom;

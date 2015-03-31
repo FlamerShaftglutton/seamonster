@@ -202,7 +202,10 @@ function jetski_factory(x)
 
 function bird_factory(x,y)
 {
-	x = x || Math.round(Math.random()) * kWidth;
+	var xx = Math.random() * (kWidth - gWindow.width);
+	if (xx >= gWindow.left && xx <= (gWindow.left + gWindow.width))
+		xx = (xx + gWindow.width) % kWidth;
+	x = x || xx;
 	y = y || Math.random() * (gPoints[Math.min(kPoints - 1,Math.max(Math.floor(kPoints * x / kWidth),0))] + kWaterLine - 100.0);
 	return new boat(x,y,(Math.random() * 2.0 + 2.0) * (x < kWidth / 2.0 ? 1 : -1),8,8,4,4,10.0,3,0.0);//yes, birds are boats...
 }
